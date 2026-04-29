@@ -1,0 +1,196 @@
+[
+  {
+    "name": "approves_high_relevance_cross_source",
+    "description": "Given a Haaland hat-trick mentioned by 3 sources, the judge must approve it with priority >= 8",
+    "input": {
+      "raw_ideas": [
+        {
+          "id": "newsapi_haaland_hat",
+          "source": "newsapi",
+          "content_hint": "[NewsAPI] Haaland scores hat-trick as Man City thrash Arsenal 4-0 in Premier League",
+          "raw_data": {},
+          "suggested_type": "news",
+          "source_url": "https://bbc.co.uk/sport/football/123",
+          "fetched_at": "2026-04-27T10:00:00"
+        },
+        {
+          "id": "reddit_haaland_hat",
+          "source": "reddit",
+          "content_hint": "[Reddit/hot] Haaland hat-trick vs Arsenal — Man City now 8 points clear at top (48000 upvotes)",
+          "raw_data": {},
+          "suggested_type": "news",
+          "source_url": "https://reddit.com/r/soccer/abc",
+          "fetched_at": "2026-04-27T10:00:00"
+        },
+        {
+          "id": "rss_bbc_haaland",
+          "source": "rss:bbc_sport",
+          "content_hint": "[RSS:bbc_sport] Haaland hits treble as City demolish Arsenal",
+          "raw_data": {},
+          "suggested_type": "news",
+          "source_url": "https://bbc.co.uk/sport/football/124",
+          "fetched_at": "2026-04-27T10:00:00"
+        },
+        {
+          "id": "fd_midtable_result",
+          "source": "football_data",
+          "content_hint": "Brentford 1-1 Wolves (PL)",
+          "raw_data": {},
+          "suggested_type": "match_result",
+          "source_url": null,
+          "fetched_at": "2026-04-27T10:00:00"
+        }
+      ]
+    },
+    "assertions": [
+      "approved_ideas.ideas must contain at least one idea with raw_idea_id in [newsapi_haaland_hat, reddit_haaland_hat, rss_bbc_haaland]",
+      "the haaland idea must have priority >= 8",
+      "fd_midtable_result must NOT appear in approved_ideas (routine mid-table draw)",
+      "every raw_idea_id in approved_ideas.ideas must exist in the input raw_ideas list (no hallucination)"
+    ]
+  },
+  {
+    "name": "rejects_stale_news",
+    "description": "A news item older than 48 hours should be rejected; a stat milestone should not be time-gated",
+    "input": {
+      "raw_ideas": [
+        {
+          "id": "old_transfer_news",
+          "source": "newsapi",
+          "content_hint": "[NewsAPI] Mbappe signs new contract with Real Madrid (published 5 days ago)",
+          "raw_data": {"publishedAt": "2026-04-22T10:00:00Z"},
+          "suggested_type": "news",
+          "source_url": "https://example.com/mbappe",
+          "fetched_at": "2026-04-27T10:00:00"
+        },
+        {
+          "id": "fresh_goal_milestone",
+          "source": "football_data",
+          "content_hint": "Kylian Mbappe (Real Madrid) has 38 goals in La Liga this season",
+          "raw_data": {},
+          "suggested_type": "milestone",
+          "source_url": null,
+          "fetched_at": "2026-04-27T10:00:00"
+        }
+      ]
+    },
+    "assertions": [
+      "old_transfer_news must NOT appear in approved_ideas (48h recency gate for news)",
+      "fresh_goal_milestone may appear — milestone/stat ideas are not time-gated",
+      "every raw_idea_id in approved_ideas.ideas must exist in the input raw_ideas list (no hallucination)"
+    ]
+  },
+  {
+    "name": "content_direction_is_specific",
+    "description": "Every approved idea must have a content_direction that names a specific angle, not just a generic description",
+    "input": {
+      "raw_ideas": [
+        {
+          "id": "endrik_debut",
+          "source": "reddit",
+          "content_hint": "[Reddit/hot] Endrik scores on Lyon debut — 18 years old (15000 upvotes)",
+          "raw_data": {},
+          "suggested_type": "news",
+          "source_url": "https://reddit.com/r/soccer/xyz",
+          "fetched_at": "2026-04-27T10:00:00"
+        }
+      ]
+    },
+    "assertions": [
+      "content_direction must not be a copy of content_hint",
+      "content_direction must mention a specific angle (age, stat comparison, debut context, etc.)",
+      "content_direction length must be > 40 characters",
+      "raw_idea_id must be 'endrik_debut' — no hallucinated IDs"
+    ]
+  },
+  {
+    "name": "empty_input_returns_empty_list",
+    "description": "When raw_ideas is empty, the judge must return an empty ideas list — it must never invent ideas",
+    "input": {
+      "raw_ideas": []
+    },
+    "assertions": [
+      "approved_ideas.ideas must be an empty list []",
+      "the judge must not invent or hallucinate any ideas when given no input"
+    ]
+  },
+  {
+    "name": "approved_ids_sourced_from_input",
+    "description": "Every raw_idea_id in the output must correspond to an id that exists in the input — guards against hallucination on partial input",
+    "input": {
+      "raw_ideas": [
+        {
+          "id": "real_idea_1",
+          "source": "rss:sky_sports",
+          "content_hint": "[RSS:sky_sports] Salah scores brace in 3-1 win over Chelsea",
+          "raw_data": {},
+          "suggested_type": "news",
+          "source_url": "https://skysports.com/1",
+          "fetched_at": "2026-04-27T10:00:00"
+        },
+        {
+          "id": "real_idea_2",
+          "source": "reddit",
+          "content_hint": "[Reddit/hot] Salah brace seals top-4 spot for Liverpool (32000 upvotes)",
+          "raw_data": {},
+          "suggested_type": "news",
+          "source_url": "https://reddit.com/r/soccer/salah",
+          "fetched_at": "2026-04-27T10:00:00"
+        }
+      ]
+    },
+    "assertions": [
+      "every raw_idea_id in approved_ideas.ideas must be one of [real_idea_1, real_idea_2]",
+      "no invented IDs such as 'idea_1', '1', 'raw_idea_1', or any string not present in the input"
+    ]
+  },
+  {
+    "name": "daily_subject_cap",
+    "description": "No more than 2 ideas about the same player or club should be approved",
+    "input": {
+      "raw_ideas": [
+        {
+          "id": "haaland_goal",
+          "source": "newsapi",
+          "content_hint": "Haaland scores his 30th PL goal of the season",
+          "raw_data": {},
+          "suggested_type": "milestone",
+          "source_url": null,
+          "fetched_at": "2026-04-27T10:00:00"
+        },
+        {
+          "id": "haaland_assist",
+          "source": "rss:guardian",
+          "content_hint": "Haaland bags hat-trick of assists in Man City's 5-0 rout",
+          "raw_data": {},
+          "suggested_type": "news",
+          "source_url": null,
+          "fetched_at": "2026-04-27T10:00:00"
+        },
+        {
+          "id": "haaland_interview",
+          "source": "rss:sky_sports",
+          "content_hint": "Haaland talks about his goal-scoring record in post-match interview",
+          "raw_data": {},
+          "suggested_type": "news",
+          "source_url": null,
+          "fetched_at": "2026-04-27T10:00:00"
+        },
+        {
+          "id": "bellingham_ucl",
+          "source": "reddit",
+          "content_hint": "Bellingham scores late winner in UCL quarter-final (55000 upvotes)",
+          "raw_data": {},
+          "suggested_type": "news",
+          "source_url": null,
+          "fetched_at": "2026-04-27T10:00:00"
+        }
+      ]
+    },
+    "assertions": [
+      "at most 2 of [haaland_goal, haaland_assist, haaland_interview] may appear in approved_ideas",
+      "bellingham_ucl may be approved independently",
+      "every raw_idea_id in approved_ideas.ideas must exist in the input raw_ideas list"
+    ]
+  }
+]

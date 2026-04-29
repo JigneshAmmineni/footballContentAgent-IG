@@ -1,282 +1,428 @@
-# Football Content Agent — ADK MVP Architecture Plan
+# Football Content Agent — Plan
 
-## Context
+---
 
-Greenfield personal project at `footballContentAgent/` (UMass personal projects folder, `git init`'d, empty save for `contentagentresearch.md`). Goal: a daily email covering Big 5 Leagues (EPL, La Liga, Bundesliga, Serie A, Ligue 1) — match results, player updates (injuries/transfers/interviews), stat insights (running totals in MVP; era comparisons in V2). Designed to extend to Instagram carousel posts with image generation without a rewrite.
+## Section 1: Content Strategy, Data Sources & Candidate Pipeline
 
-**Decisions confirmed by user:**
-- Orchestration: **ADK via `agents-cli` from day 1** (not plain Python).
-- Stats scope: **defer historical comparisons to V2** — MVP uses in-season running totals only.
-- Approval: **draft file + manual send script** (`out/YYYY-MM-DD-draft.md` + `python -m src.send`).
+### Content Categories
 
-**Environment already set up:**
-- gcloud on `jigneshammineni@gmail.com`, project `gen-lang-client-0313493228` (AI Studio–backed), ADC fresh.
-- `gws` CLI authenticated for Gmail send on the same account.
-- `agents-cli` skills toolkit available; user wants prototype-first (no deployment yet).
+Content falls into three broad buckets. These are not mutually exclusive and are not an enum — a single raw idea can span categories. The idea judge assigns a free-form `content_direction`, not a fixed type.
 
-**The ADK workflow enforces a specific order (Phases 0–7 in `google-agents-cli-workflow`):**
-Understand → Study samples → Scaffold → Build → Evaluate → Deploy → Publish → Observe. This plan executes Phases 0–4; 5–7 are deferred.
+**News/reactive** (event-driven):
+- Important match results (title race, relegation battles, popular scorers)
+- Injury news
+- Transfer news and rumors
+- Notable press conference quotes
 
-Research doc (`contentagentresearch.md`) applied:
-- **Boring wins** → linear `SequentialAgent` over a CrewAI-style crew.
-- **Curation is where it succeeds or fails** → dedicated `curator_agent` with a rubric prompt, a different model family than the writer for the critic pass (avoids self-preference bias).
-- **Plan-first (outline-then-fill)** → writer does outline → sections, not single-shot.
-- **Config-as-files** → prompts in `prompts/*.md`, loaded by agents; swappable without touching code.
-- **Scalability hook** → structured `ContentBundle` + `PlatformAdapter` ABC; newsletter and future Instagram publisher are siblings over a shared generation core.
+**Structured/scheduled** (fixture- and data-driven):
+- Match preview cards
+- Form guide posts (last 5 results for teams in meaningful positions)
+- Player milestone posts (e.g. "Endrik just scored his 10th league goal at 18")
 
-## Reference Sample: `ambient-expense-agent`
+**Derived/editorial** (aggregated, no single source):
+- Stat comparisons
+- Debate/engagement prompts
 
-Canonical ADK pattern for our use case per the skill ("scheduled, daily, email, ambient"). Structure we're borrowing (adapted for our scope):
+---
 
-- `expense_agent/agent.py` → our `content_agent/agent.py` (the `root_agent` definition)
-- `expense_agent/config.py` → our `content_agent/config.py` (model name, feeds, recipient list)
-- `expense_agent/fast_api_app.py` → **deferred** (only needed for Cloud Run / push triggers in Phase 3)
-- `terraform/` → **deferred** (Phase 3)
+### Data Sources
 
-**Not using** from the sample: Pub/Sub trigger (we run locally via `agents-cli run`), Workflow graph + HITL `RequestInput` (we use simpler `SequentialAgent`, file-based approval), Cloud Run deployment (prototype-first).
+All sources are free. Rate limit mitigations are baked into the fetcher implementations.
 
-**Using** from the sample: the AI Studio/Vertex auto-detect in `config.py` (`GOOGLE_API_KEY` present → AI Studio; else → Vertex via ADC), function-tools pattern, log-based monitoring idea (for later).
+| Source | Covers | Auth | Rate limit | Mitigation |
+|---|---|---|---|---|
+| **football-data.org** | Fixtures, results, standings, scorers — all Big 5 | `FOOTBALL_DATA_TOKEN` in `.env` | 10 req/min | 7s sleep between calls; ~15 reqs/day total |
+| **NewsAPI.org** | Aggregated football news from 150+ publishers | `NEWS_API_KEY` in `.env` | 100 req/day | Max 5 broad queries per run; no pagination |
+| **Reddit r/soccer** | Viral news, transfer rumors, quotes, community reactions | None (unauthenticated JSON) | ~60 req/min | Browser `User-Agent` header; 3 requests (new, hot, rising) |
+| **FBref** (via `soccerdata`) | Deep player/team stats, cumulative numbers | None (scraping) | Soft — scraping protection | soccerdata's built-in 5s delay + local file cache |
+| **Understat** (via `soccerdata`) | xG, shot maps, match stats | None (scraping) | Soft — scraping protection | Same as FBref |
+| **BBC Sport RSS** | Match reports, injuries, transfers | None | None | — |
+| **Sky Sports RSS** | Transfers, injuries, manager quotes | None | None | — |
+| **Guardian Football RSS** | Match analysis, news | None | None | — |
+| **ESPN FC RSS** | Results, news | None | None | — |
+| **90min RSS** | News, rumors | None | None | — |
+| **Goal.com RSS** | News, transfer rumours | None | None | — |
 
-## Recommended ADK Shape
+See `DATA_SOURCES.md` for API registration links, env var names, and endpoint details.
 
-```
-root_agent = SequentialAgent(
-    name="football_content_pipeline",
-    sub_agents=[
-        curator_agent,   # LlmAgent + tools: fetch_rss, fetch_football_data, fetch_reddit, dedup
-        writer_agent,    # LlmAgent, reads curator's ContentBundle from state, outline-then-sections
-        critic_agent,    # LlmAgent (different model family from writer), rewrites or approves
-    ],
-    after_agent_callback=write_draft_to_file,  # dumps final to out/YYYY-MM-DD-draft.md
-)
-```
+All fetchers run **once per day** as a single batch job.
 
-- **Ingest is not an agent** — RSS / API / Reddit fetches are plain Python functions wrapped as tools. `curator_agent` calls them, receives raw candidates, then reasons over them to rank.
-- **Dedup is a tool** called by `curator_agent` before ranking. Tool reads/writes `data/seen.json` (SHA-256 IDs). Swap for pgvector later without touching agent code.
-- **Structured output**: curator emits a `ContentBundle` (JSON, validated via Pydantic) via ADK's `output_schema` feature. Writer consumes it. Critic receives both the bundle and the writer's draft.
-- **Critic uses a different model family** than the writer — research's guidance to avoid self-preference bias. Writer: Gemini Pro; Critic: Gemini Flash (or flip; tune in AI Studio). If you want a *truly* different family, swap the critic to `gpt-4o-mini` via LiteLLM later.
-- **State flow**: ADK passes state between sub-agents via `Context`. Keys: `candidates`, `bundle`, `draft`, `final`.
+---
 
-## Scalability Seams (day-one hooks for IG + image gen)
+### Candidate Queue Structure
 
-1. **`ContentBundle` Pydantic model** — structured, NOT a pre-formatted string. Lives in `content_agent/bundle.py`:
-   ```python
-   class ContentBundle(BaseModel):
-       date: date
-       match_results: list[MatchItem]
-       player_updates: list[PlayerItem]
-       stat_insights: list[StatItem]
-       image_briefs: list[ImageBrief] = []   # populated in V2
-   ```
-2. **`PlatformAdapter` ABC** (`content_agent/publishers/base.py`): `format(bundle) -> str` + `publish(formatted) -> None`. Subclasses: `EmailPublisher` (MVP), `InstagramPublisher` (V2).
-3. **Prompts as files** (`prompts/*.md`): `brand_voice.md`, `curator.md`, `writer.md`, `critic.md`, + later `image_brief.md`. Loaded by agents at startup via `config.py`.
-4. **Dispatcher**: `publishers: list[PlatformAdapter]` configured in `config.py`. MVP = `[EmailPublisher]`. V2 = `[EmailPublisher, InstagramPublisher]`.
-5. **Image generation hook**: `ImageBrief` carries prompt + aspect ratio. V2 adds `content_agent/tools/image.py` calling Imagen via `google-genai`.
-6. **Deployment seam**: scaffolding as prototype now (`--deployment-target prototype` or equivalent). Later `agents-cli scaffold enhance . --deployment-target agent_runtime` (or `cloud_run` with a Cloud Scheduler → Pub/Sub push trigger) without rewriting agent code.
-
-## AI Studio as Prompt Playground — concrete workflow
-
-Each prompt iterates in AI Studio with *real* candidate data, then lands in `prompts/*.md`.
-
-### Step 1 — dump real candidates locally
-Create `scratch/dump_samples.py` (standalone Python, NOT an ADK tool): runs the same ingest/dedup logic your `curator_agent` will use, serializes ~30 candidates to `scratch/samples.json` (gitignored).
-
-```python
-# scratch/dump_samples.py — illustrative
-from content_agent.tools.ingest import fetch_rss, fetch_football_data, fetch_reddit
-from content_agent.tools.dedup import dedup
-candidates = dedup(fetch_rss() + fetch_football_data() + fetch_reddit())
-json.dump([c.model_dump() for c in candidates[:30]], open("scratch/samples.json", "w"), default=str)
-```
-
-Why not just call `curator_agent` with `--dry-run`? Because you want raw pre-LLM candidates to paste into AI Studio, not the curator's already-filtered output.
-
-### Step 2 — iterate in aistudio.google.com
-Open AI Studio → new chat → **Gemini 2.5 Pro** (or whichever the latest is; confirm via `uv run --with google-genai python -c "from google import genai; client = genai.Client(vertexai=True, location='global'); [print(m.name) for m in client.models.list()]"`).
-
-Paste a prompt shaped like:
+Each fetcher produces `RawIdea` objects that enter a shared queue. Dedup runs across all sources before the queue is handed to the judge.
 
 ```
-<system>
-You are a soccer news curator for a daily Big 5 Leagues newsletter.
-Rubric (each 1–25, sum = 100):
-- MATCH IMPORTANCE: top-of-table, derbies, relegation
-- PLAYER IMPACT: injuries to stars, transfers, standout performances
-- STAT NOVELTY: records, unusual patterns, running totals
-- FRESHNESS: not covered in the last 7 days
-</system>
-
-<candidates>
-[paste 20–30 items from scratch/samples.json verbatim]
-</candidates>
-
-Output JSON matching this schema:
-{"picks": [{"id": "...", "score": int, "category": "match|player|stat", "reason": "..."}]}
+RawIdea:
+  id: str                   # SHA-256 of (source + content_fingerprint)
+  source: str               # "football_data" | "newsapi" | "reddit" | "fbref" | "understat" | "rss:{outlet}"
+  content_hint: str         # short natural-language summary of the event/data point
+  raw_data: dict            # original payload from source
+  fetched_at: datetime
+  suggested_type: str | None  # fetcher's non-binding hint ("milestone", "preview", "news", etc.)
 ```
 
-Toggle **Structured output** in the right panel — AI Studio enforces the schema. Tweak the rubric, role, output shape until picks match editorial intuition.
+Dedup is SHA-256 keyed on `(source, content_fingerprint)`. A separate semantic near-duplicate pass (string similarity) collapses cross-source duplicates about the same event before the judge sees the queue.
 
-### Step 3 — export to ADK
-Click **"Get code"** → Python → you get a `google-genai` snippet. You don't paste the snippet wholesale; you paste the *system prompt text* into `prompts/curator.md` and reuse the JSON schema as a Pydantic model for ADK's `output_schema`.
+---
 
-Repeat for `writer.md` (outline → sections), `critic.md` (rubric-based rewrite).
+### Idea Judge
 
-### Step 4 — smoke test in ADK
-`agents-cli run "generate today's newsletter"` → sub-agents run in sequence → draft lands in `out/YYYY-MM-DD-draft.md`. If something looks off, go back to AI Studio with the same inputs and iterate the prompt.
+An LLM call sitting at the end of the deduplicated queue. Processes each `RawIdea` and either rejects it or emits an `ApprovedIdea`.
 
-**Tip**: AI Studio caps on very long pastes — if 30 candidates blows past the comfortable context, tune with `dump_samples.py --limit 10` and let the production run handle the full set.
+**Judge guidelines (rubric):**
 
-## Target File Layout (post-scaffold)
+1. **"Do people care about this right now?"** — primary filter. Reason about current cultural relevance and momentum, not club size or player fame. An up-and-coming player generating buzz clears this bar; a routine result from a mid-table club does not.
 
-`agents-cli scaffold create` generates most of this. Italics mark files we hand-write/customize.
+2. **Cross-source corroboration signal** — if 2+ independent sources mention the same event or player, treat it as organic evidence of relevance. Single-source mentions require stronger reasoning to pass.
+
+3. **Recency gate (news only)** — news ideas older than 48 hours are rejected. Stats, milestones, and comparisons are not time-gated.
+
+4. **Compelling angle required** — the judge must articulate a specific `content_direction` for the post. If it cannot find a genuinely interesting angle, it rejects the idea.
+
+5. **Daily subject cap** — reject any idea about a club or player already represented by 2 approved ideas in today's queue. Prevents single-subject flooding.
+
+**ApprovedIdea output:**
+
+```
+ApprovedIdea:
+  raw_idea_id: str
+  priority: int             # 1–10; used downstream to order content generation
+  content_direction: str    # free-form editorial brief (e.g. "Endrik debut — compare youth
+                            #   numbers to historical peers at same age in Ligue 1")
+  data_needed: list[str]    # additional fetches the content generator will need
+```
+
+The judge does **not** enforce a fixed post-type enum. `content_direction` is intentionally open-ended — content types overlap in practice and the list will grow over time.
+
+---
+
+## Section 2: Content Generation Pipeline & ADK Architecture
+
+### ADK Agent Orchestration
+
+The pipeline is a top-level `SequentialAgent` containing five named `LlmAgent`s. State flows through ADK session state between agents. Prompts live in `prompts/*.md`, loaded at startup by `config.py`. Deployment target is **Gemini Enterprise Agent Runtime** via `agents-cli deploy agent_runtime`.
+
+```
+root_agent = SequentialAgent("football_content_pipeline")
+    │
+    ├── NewsIngestAgent        # fetches all sources, deduplicates, writes raw_ideas to state
+    ├── IdeaJudgeAgent         # reads raw_ideas, emits approved_ideas (output_schema=ApprovedIdeaList)
+    ├── ImageGeneratorAgent    # per approved idea: routes → fetches/generates image → writes image paths to state
+    ├── CaptionWriterAgent     # reads approved_ideas + image paths, writes draft_captions to state
+    └── CaptionCriticAgent     # reads approved_ideas + draft_captions only (fresh context), writes final_posts
+          │
+          └── after_agent_callback: write_output_files → out/YYYY-MM-DD/{idea_id}/image.png + caption.txt
+```
+
+**State keys:**
+```
+raw_ideas:       list[RawIdea]          written by NewsIngestAgent
+approved_ideas:  list[ApprovedIdea]     written by IdeaJudgeAgent
+image_paths:     dict[idea_id, str]     written by ImageGeneratorAgent
+draft_captions:  dict[idea_id, str]     written by CaptionWriterAgent
+final_posts:     list[FinalPost]        written by CaptionCriticAgent
+```
+
+**Agent responsibilities:**
+
+- **NewsIngestAgent** — `LlmAgent` with 8 fetcher tools (one per source). Calls tools, aggregates results, runs SHA-256 dedup + semantic near-duplicate collapse, writes `raw_ideas` to state. Prompt: `prompts/news_ingest.md`.
+
+- **IdeaJudgeAgent** — `LlmAgent` with `output_schema=ApprovedIdeaList`. Reads `raw_ideas`, applies the judge rubric (Section 1), emits approved ideas sorted by priority. Prompt: `prompts/idea_judge.md`.
+
+- **ImageGeneratorAgent** — `LlmAgent` with image generation tools (see Image Generation Module below). Iterates over `approved_ideas`, generates one image per idea, writes paths to `image_paths`. Prompt: `prompts/image_generator.md`.
+
+- **CaptionWriterAgent** — `LlmAgent`. Reads `approved_ideas` + `image_paths`. For each idea, writes a hype/energetic caption driving engagement. Prompt: `prompts/caption_writer.md`.
+
+- **CaptionCriticAgent** — `LlmAgent`. Receives only `approved_ideas` + `draft_captions` in context (not the writer's system prompt or chain of thought — enforcing the "fresh session" constraint via scoped state injection). Improves each caption and appends hashtags. Prompt: `prompts/caption_critic.md`.
+
+**Prompts folder:**
+```
+prompts/
+  brand_voice.md       # tone, POV, what to avoid — shared across writer and critic
+  news_ingest.md       # ingest agent instructions
+  idea_judge.md        # judge rubric prompt
+  image_generator.md   # visual direction prompt (how to pick Imagen prompts per content type)
+  caption_writer.md    # hype tone, engagement-driving, references brand_voice.md
+  caption_critic.md    # review rubric: punchy, no fluff, hashtag generation
+```
+
+**Deployment note:** `deployment_metadata.json` already exists at project root (generated by `agents-cli scaffold`). Agent Runtime deployment: `agents-cli deploy agent_runtime`. Daily scheduling is configured via Cloud Scheduler after deployment (Phase 5 — deferred).
+
+---
+
+### ─── IMAGE GENERATION MODULE ───────────────────────────────────────────────
+> This section is deliberately isolated. The image generation approach can be swapped
+> without touching any other part of the pipeline. ImageGeneratorAgent uses these tools;
+> the rest of the pipeline only cares about the image path that comes out.
+
+**Three-path router** — Python function inside `ImageGeneratorAgent`'s tool set. Reads `content_direction` and routes to the appropriate generator. Not an LLM call.
+
+```
+content_direction keywords → generator path
+
+contains "quote" | "said" | "press conference"    → Pillow quote card template
+contains "scored" | "milestone" | "goal" | "hat"  → Pillow milestone card template
+contains "vs" | "preview" | "fixture" | "kickoff" → Pillow match card template
+contains "result" | "won" | "drew" | "lost"        → Pillow match card template
+contains "form" | "last 5" | "run of"              → Pillow form guide (programmatic)
+contains "stat" | "xG" | "radar" | "compared to"  → Mplsoccer chart
+fallback                                            → Gemini Imagen
+```
+
+**Path A — Pillow Templates** (quote card, milestone card, match card, form guide)
+
+Template spec (to be designed in Canva/Figma and exported as PNG with transparent zones):
+- Canvas: 1080×1080px (Instagram square)
+- Zone 1: full-bleed background image (player photo or team graphic)
+- Zone 2: dark gradient overlay (bottom 40% of canvas, for text legibility)
+- Zone 3: main text — centered, max 3 lines, 72px bold white
+- Zone 4: source/badge strip — bottom bar, 32px, 60% opacity white
+- Zone 5: account branding — top-right corner logo placeholder
+
+Player/background photo sourcing (for quote card and milestone card):
+1. **Jina Reader first** — if the `RawIdea` has a `source_url`, call `https://r.jina.ai/{source_url}` and extract `og:image` from the returned markdown. Download and use as Zone 1 background.
+2. **Gemini Imagen fallback** — if Jina Reader returns no image or the URL has no source article, generate via Imagen 3 with a context-aware prompt (see below).
+
+Team badge sourcing (for match cards):
+- football-data.org returns a `crest` URL per team in every fixtures/standings response.
+- Cache badges locally to `data/badges/{team_id}.png` on first fetch. Reuse on subsequent runs.
+
+**Path B — Mplsoccer + Pillow composite** (stat comparisons, form guide)
+
+All chart posts go through a two-step process:
+1. `render_chart_figure(data, chart_type)` — Mplsoccer/Matplotlib renders the chart as an in-memory figure (radar, bar, W/D/L strip). Output: raw figure, not a file.
+2. `composite(background, content_zone, overlays)` — Pillow places the figure into the content zone of a styled background (team color gradient or stadium photo via Jina Reader), adds title text and badges.
+
+The compositing step is **shared across all three Pillow paths** — quote cards, stat cards, and match cards all go through `composite()`. The only difference is what's in the content zone: a text block, a chart figure, or a scoreline layout.
+
+**Path C — Gemini Imagen 3** (non-standard content and player photo fallback)
+
+Called via `google-genai` SDK using the same `GOOGLE_API_KEY`.
+
+The Imagen prompt is **generated contextually** — not a fixed template. The `image_generator.md` prompt instructs the agent to derive a visual direction from `content_direction`:
+
+```
+"goal scored / hat-trick / milestone"      → dramatic mid-kick shooting action, motion blur, stadium crowd
+"transfer / signing / new club"            → player in celebratory pose, training ground setting
+"injury news"                              → player on the sidelines, medical staff, contemplative
+"press conference / manager quote"         → speaker at podium or microphone, press backdrop
+"match preview"                            → two sets of fans in stadium, rivalry atmosphere, floodlights
+"stat comparison"                          → abstract data visualization aesthetic, football field top-down
+default                                    → dramatic stadium atmosphere, crowd, floodlights
+```
+
+Aspect ratio: `1:1` (1080×1080). Model: `imagen-3.0-generate-002` (or latest available — confirm at runtime).
+
+### ─────────────────────────────────────────────────────────────────────────────
+
+---
+
+### Caption Pipeline
+
+**CaptionWriterAgent prompt direction** (`prompts/caption_writer.md`):
+- Tone: high-energy, hype, football fan voice — like a passionate supporter texting their mate
+- Every caption must open with a hook (a fact, a question, or a bold statement — never "Here's")
+- Drive engagement: end with a question or a call to action ("Drop your prediction below 👇", "Who does this better?")
+- Length: 3–5 lines. No padding. Every line earns its place.
+- Reference the `content_direction` brief; don't generalize
+
+**CaptionCriticAgent prompt direction** (`prompts/caption_critic.md`):
+- Fresh context: receives only the original `content_direction` brief + the draft caption
+- Review rubric: Is the hook punchy? Does every line add something? Does it end with engagement?
+- Cut anything that sounds like a press release or a match report
+- Append 5–8 hashtags: 2 competition-specific (#PremierLeague), 2 player/club-specific, 2 generic football (#football #UCL style), 1 branded placeholder (#YourAccountName)
+- Output: revised caption + hashtags as a single block, ready to post
+
+**FinalPost output:**
+```
+FinalPost:
+  idea_id: str
+  image_path: str       # out/YYYY-MM-DD/{idea_id}/image.png
+  caption: str          # revised caption + hashtags
+  priority: int         # carried from ApprovedIdea for ordering
+```
+
+---
+
+## Section 3: File Layout & Build Sequence
+
+### File Layout
+
+The ADK package root is `app/` — this is fixed by the existing scaffold and Agent Runtime deployment. Do not rename it.
+
+**Deviations from original design:**
+- `prompts/` lives at `app/prompts/` (not project root) — Agent Runtime bundles `app/` wholesale; prompts must be inside it to survive deployment.
+- `assets/templates/` lives at `app/assets/templates/` — same reason.
+- `NewsIngestAgent` is a `BaseAgent` subclass (pure Python), not an `LlmAgent` — fetching all sources and deduplicating is fully deterministic; there is no reasoning task requiring an LLM here. State is written directly via `ctx.session.state`.
+- Agent instructions use ADK's `{state_key}` template substitution to inject upstream state (e.g. `{raw_ideas}`) rather than passing data through a `before_agent_callback`.
+
+All agent code lives inside `app/`. Data, output, scratch, and eval remain at the project root (local dev only; GCS replaces them in production).
 
 ```
 footballContentAgent/
-├── .env                          # GOOGLE_API_KEY (user-managed, never read by Claude)
-├── .env.example                  # template
-├── .gitignore
-├── pyproject.toml                # scaffold-generated; we add: feedparser, requests, pydantic
-├── README.md                     # scaffold-generated; we customize
-├── contentagentresearch.md       # existing (unchanged)
-├── DESIGN_SPEC.md                # ← we write: purpose, tools, constraints, success criteria
-├── content_agent/
+│
+├── app/                              # ADK package root — Agent Runtime bundles this directory
 │   ├── __init__.py
-│   ├── agent.py                  # ← SequentialAgent + 3 sub-agents
-│   ├── config.py                 # ← model names, feed list, recipient, prompt loader
-│   ├── bundle.py                 # ← Pydantic models: ContentBundle, MatchItem, PlayerItem, StatItem, ImageBrief
-│   ├── sub_agents/
-│   │   ├── curator.py            # ← LlmAgent + rubric + output_schema=ContentBundle
-│   │   ├── writer.py             # ← LlmAgent reading bundle, outline-then-sections
-│   │   └── critic.py             # ← LlmAgent (different model) with rewrite capability
-│   ├── tools/
-│   │   ├── ingest.py             # ← fetch_rss, fetch_football_data, fetch_reddit (ADK function tools)
-│   │   ├── dedup.py              # ← sha256 + seen.json; signature stable for pgvector swap
-│   │   └── send.py               # ← not a tool — standalone script using gws gmail send
-│   ├── publishers/
+│   ├── agent.py                      # root_agent = SequentialAgent(...) — ADK entrypoint
+│   ├── config.py                     # Config dataclass: model names, feed URLs, prompt loader
+│   ├── callbacks.py                  # write_output_files() after_agent_callback
+│   │
+│   ├── app_utils/
+│   │   └── .requirements.txt         # pinned deps for Agent Runtime — add new deps here
+│   │
+│   ├── models/                       # Pydantic data contracts — shared by all agents
 │   │   ├── __init__.py
-│   │   ├── base.py               # ← PlatformAdapter ABC
-│   │   └── email.py              # ← EmailPublisher wrapping gws
-│   └── callbacks.py              # ← after_agent_callback: write bundle+draft to out/
-├── prompts/
-│   ├── brand_voice.md            # ← tone, POV, what to avoid (personal voice)
-│   ├── curator.md                # ← tuned in AI Studio, pasted here
-│   ├── writer.md
-│   └── critic.md
-├── scratch/
-│   └── dump_samples.py           # ← fetch candidates -> scratch/samples.json for AI Studio
+│   │   ├── raw_idea.py               # RawIdea
+│   │   ├── approved_idea.py          # ApprovedIdea, ApprovedIdeaList (output_schema)
+│   │   └── final_post.py             # FinalPost
+│   │
+│   ├── sub_agents/
+│   │   ├── __init__.py
+│   │   ├── news_ingest.py            # NewsIngestAgent
+│   │   ├── idea_judge.py             # IdeaJudgeAgent
+│   │   ├── image_generator.py        # ImageGeneratorAgent
+│   │   ├── caption_writer.py         # CaptionWriterAgent
+│   │   └── caption_critic.py         # CaptionCriticAgent
+│   │
+│   └── tools/
+│       ├── __init__.py
+│       ├── dedup.py                  # sha256_id() + semantic_dedup() — stable interface
+│       │
+│       ├── fetchers/                 # one file per source; all subclass BaseFetcher
+│       │   ├── __init__.py
+│       │   ├── base.py               # BaseFetcher ABC: fetch() -> list[RawIdea]
+│       │   ├── football_data.py      # FootballDataFetcher
+│       │   ├── newsapi.py            # NewsApiFetcher
+│       │   ├── reddit.py             # RedditFetcher
+│       │   ├── rss.py                # RssFetcher (all 6 outlets, configured via config.py)
+│       │   ├── fbref.py              # FbrefFetcher
+│       │   └── understat.py          # UnderstatFetcher
+│       │
+│       └── image/                    # ── IMAGE GENERATION MODULE (isolated) ──
+│           ├── __init__.py
+│           ├── router.py             # route(content_direction) -> GeneratorPath enum
+│           ├── sourcing.py           # get_background_image(): Jina Reader → Imagen fallback
+│           ├── composite.py          # composite(background, content_zone, overlays) -> PIL.Image
+│           ├── pillow_renderer.py    # render_text_zone(), render_badges(), render_form_dots()
+│           ├── chart_renderer.py     # render_chart_figure(data, chart_type) -> matplotlib Figure
+│           └── imagen_client.py      # generate_imagen(prompt, aspect) -> PIL.Image
+│
+├── prompts/                          # prompt files — edit without touching code
+│   ├── brand_voice.md
+│   ├── news_ingest.md
+│   ├── idea_judge.md
+│   ├── image_generator.md
+│   ├── caption_writer.md
+│   └── caption_critic.md
+│
+├── assets/
+│   └── templates/                    # base Pillow template PNGs (placeholder until designed)
+│       ├── quote_card.png
+│       ├── match_card.png
+│       └── stat_card.png
+│
 ├── data/
-│   ├── seen.json                 # dedup memory (gitignored)
-│   └── archive/                  # past bundles as JSON (for V2 novelty checks against memory)
-├── out/                          # drafts awaiting approval: YYYY-MM-DD-draft.md (gitignored)
+│   ├── seen.json                     # dedup memory (gitignored)
+│   ├── badges/                       # cached team badge PNGs from football-data.org
+│   └── archive/                      # past FinalPost JSON snapshots
+│
+├── out/                              # daily output: out/YYYY-MM-DD/{idea_id}/ (gitignored)
+│   └── YYYY-MM-DD/
+│       └── {idea_id}/
+│           ├── image.png
+│           └── caption.txt
+│
+├── scratch/
+│   └── dump_samples.py               # standalone: fetch → dump raw_ideas to scratch/samples.json
+│
 ├── eval/
-│   └── curator.evalset.json      # 2–3 cases: given candidates X, picks should include Y
-└── tests/
-    ├── test_dedup.py             # unit: SHA-256 idempotent, seen.json persists
-    └── test_bundle.py            # unit: Pydantic validation roundtrip
+│   └── judge.evalset.json            # 2–3 fixed-input eval cases for IdeaJudgeAgent
+│
+├── tests/
+│   └── unit/
+│       ├── test_models.py            # Pydantic roundtrip validation
+│       ├── test_dedup.py             # sha256 idempotence, seen.json persistence
+│       └── test_fetchers.py          # fetcher contract tests (mock HTTP)
+│
+├── DATA_SOURCES.md
+├── PLAN.md
+├── deployment_metadata.json          # existing — points to Agent Runtime instance
+└── .env.example
 ```
 
-## Model Routing (AI Studio models, hybrid per research)
+**New deps to add to `app/app_utils/.requirements.txt`:**
+- `soccerdata` — FBref + Understat wrappers
+- `mplsoccer` — radar charts and football-specific visualizations
+- `Pillow` — image compositing
+- `matplotlib` is already present via numpy/scipy transitive deps — confirm at build time
 
-- **Curator**: Gemini 2.5 Pro — strong judgment for ranking.
-- **Writer**: Gemini 2.5 Pro — voice quality matters.
-- **Critic**: Gemini 2.5 Flash — different tier breaks self-preference somewhat; cheaper. (If the critic keeps rubber-stamping the writer's output, swap to a different family via LiteLLM later — research's recommendation.)
-- **Bulk summarization (future)**: Gemini 2.5 Flash-Lite for any batched item summarization.
+---
 
-Confirm exact latest model IDs via `uv run --with google-genai python -c "from google import genai; c = genai.Client(); [print(m.name) for m in c.models.list()]"` — don't hardcode from memory (model-preservation rule).
+### OOP Design Principles
 
-## Data Sources
+**`BaseFetcher` ABC** — all fetchers implement one interface: `fetch() -> list[RawIdea]`. Adding a new source means subclassing `BaseFetcher`, not touching any agent or config. `NewsIngestAgent` receives `list[BaseFetcher]` from `Config`, calls `fetch()` on each.
 
-- **RSS (free)**: BBC Sport, Guardian Football, ESPN FC, 90min, Football365, Goal.com. `feedparser` in `content_agent/tools/ingest.py::fetch_rss`.
-- **Match results (free)**: football-data.org free tier covers all Big 5. Endpoint `/v4/matches?competitions=PL,PD,BL1,SA,FL1&dateFrom=<today-1>&dateTo=<today>`. 10 req/min. API key goes in `.env` as `FOOTBALL_DATA_TOKEN`, consumed by `fetch_football_data`.
-- **Social/discussion (free)**: Reddit `r/soccer/new.json?limit=50` with browser User-Agent. Research confirms this works unauth. `fetch_reddit` consumes it.
-- **Full bodies (free)**: Jina Reader (`https://r.jina.ai/<url>`) — zero config, pulls clean markdown. Called on-demand by writer when a headline warrants expansion (future; not MVP).
-- **Stats for comparisons**: deferred to V2 via `worldfootballR` CSV dumps cached locally.
+**`Config` dataclass** — single source of truth. Instantiated once, injected into agents and tools. Fields: `model_names: dict`, `fetchers: list[BaseFetcher]`, `prompt_dir: Path`, `output_dir: Path`, `data_dir: Path`. No global state, no scattered constants.
 
-## Execution Phases
+**`composite()` as shared core** — all image paths produce a `PIL.Image` and call the same `composite(background, content_zone, overlays)` function. The image generation module boundary is `get_or_generate_image(idea: ApprovedIdea) -> Path` — one function in, one file path out.
 
-### Phase 0 — Understand (write `DESIGN_SPEC.md`)
-Per the ADK workflow: the spec is the source of truth for the scaffold. I'll draft it from this plan (purpose, example inputs/outputs, tools with auth details, constraints/safety, success criteria, reference sample `ambient-expense-agent`). You approve it before we scaffold.
+**Pydantic models as inter-agent contracts** — `RawIdea`, `ApprovedIdea`, `FinalPost` are the only shared types. Agents communicate via ADK session state using these types serialized to JSON. Changing an agent's internal logic never requires changing another agent's code.
 
-### Phase 1 — Study samples
-Already done (`ambient-expense-agent` report above). Applying: `config.py` env-based provider auto-detect; function-tools for ingest/dedup; structured-output agents for curator; sub-agent composition.
+---
 
-### Phase 2 — Scaffold
-Because the folder already has `contentagentresearch.md` and `.git/`, we handle one of:
-- **Preferred**: `agents-cli scaffold create` inside the current folder (if the CLI supports scaffolding into a non-empty dir — we verify with `--help` / dry-run at execution time). The `--deployment-target prototype` flag skips Terraform/CI/CD generation.
-- **Fallback**: scaffold into a sibling dir, move contents in, preserve `.git/`.
+### Build Sequence
 
-During scaffold prompts, select: Python, Gemini (AI Studio), prototype, no datastore, no A2A, no Memory Bank. These match the `DESIGN_SPEC.md` we write in Phase 0.
+Build bottom-up. Each layer is independently testable before the next begins.
 
-Immediately after scaffold: `agents-cli info` to confirm structure, `uv sync` to install deps.
+| Step | What | Verify |
+|---|---|---|
+| 1 | Add missing deps to `.requirements.txt` | `python -c "import soccerdata, mplsoccer, PIL"` |
+| 2 | `app/models/` — Pydantic models | `pytest tests/unit/test_models.py` |
+| 3 | `app/config.py` — Config dataclass + prompt loader | instantiate Config, assert prompt files load |
+| 4 | `app/tools/fetchers/base.py` + one fetcher (football_data.py first) | `python scratch/dump_samples.py --source football_data` |
+| 5 | Remaining 5 fetchers | extend dump_samples.py to test each source |
+| 6 | `app/tools/dedup.py` | `pytest tests/unit/test_dedup.py` |
+| 7 | `app/tools/image/` — full image module | standalone script: given a test idea, produce image.png |
+| 8 | `app/callbacks.py` | unit test: assert out/ directory structure created correctly |
+| 9 | `app/sub_agents/news_ingest.py` + prompt | `agents-cli run "run news ingest only"`, inspect state |
+| 10 | `app/sub_agents/idea_judge.py` + prompt | feed fixed raw_ideas from samples.json, inspect approved_ideas |
+| 11 | `app/sub_agents/image_generator.py` + prompt | feed fixed approved_ideas, inspect image output |
+| 12 | `app/sub_agents/caption_writer.py` + prompt | feed fixed approved_ideas + image paths, inspect draft captions |
+| 13 | `app/sub_agents/caption_critic.py` + prompt | feed fixed approved_ideas + draft captions, inspect final captions |
+| 14 | `app/agent.py` — wire root_agent | `agents-cli run "run full pipeline"` → out/ populated |
+| 15 | `eval/judge.evalset.json` — 2–3 cases | `agents-cli eval run` → all green |
+| 16 | Re-deploy to Agent Runtime | `agents-cli deploy agent_runtime` |
 
-### Phase 3 — Build
-1. Add `FOOTBALL_DATA_TOKEN` to `.env.example` (NOT `.env` — user adds real token themselves per your global rule).
-2. `content_agent/bundle.py`: Pydantic models.
-3. `content_agent/tools/ingest.py`: three fetcher functions returning `list[Candidate]`.
-4. `content_agent/tools/dedup.py`: SHA-256 hash + `data/seen.json` round-trip. Stable signature for future pgvector swap.
-5. `content_agent/sub_agents/curator.py`: `LlmAgent` with `tools=[fetch_rss, fetch_football_data, fetch_reddit, dedup]`, `output_schema=ContentBundle`, instruction loaded from `prompts/curator.md`.
-6. `content_agent/sub_agents/writer.py`: `LlmAgent` reading `ContentBundle` from state, two-stage (outline → sections), instruction from `prompts/writer.md`.
-7. `content_agent/sub_agents/critic.py`: `LlmAgent` on different model tier, rewrite-or-approve, instruction from `prompts/critic.md`.
-8. `content_agent/agent.py`: `root_agent = SequentialAgent(sub_agents=[...], after_agent_callback=write_draft_to_file)`.
-9. `content_agent/callbacks.py`: `write_draft_to_file(context)` → `out/YYYY-MM-DD-draft.md` + JSON bundle snapshot in `data/archive/`.
-10. `content_agent/publishers/{base,email}.py`: ABC + `EmailPublisher` wrapping `gws gmail` via subprocess.
-11. `content_agent/tools/send.py`: standalone `__main__` script (invoked as `python -m content_agent.tools.send YYYY-MM-DD`) that reads the approved draft and ships it.
-12. `scratch/dump_samples.py`: imports the ingest tools, dumps to JSON.
-13. `prompts/*.md`: start with plausible first drafts; iterate via AI Studio (Step 2 above).
+Prompts (`prompts/*.md`) are iterated in AI Studio between steps 9–13 — each agent gets a working first-draft prompt before its step, then refined against real data from `scratch/samples.json`.
 
-Smoke tests after each sub-agent lands: `agents-cli run "generate today's newsletter"`.
+---
 
-### Phase 4 — Evaluate
-Per skill: MANDATORY, not optional. Start with 2–3 cases in `eval/curator.evalset.json`:
-- Given a fixed set of 20 candidates (snapshot `samples.json`), curator's picks should include a specific match result and exclude a specific stale item.
-- Given a `ContentBundle`, writer's output length is in range and each section references bundle items.
-- Critic produces fewer than N rewrites on a known-good draft.
+## Roadmap
 
-Run: `agents-cli eval run`. Iterate prompts until green. Add edge cases after core passes.
+Improvements deferred from MVP. None of these require changes to the core pipeline — each hooks into an existing seam.
 
-**No pytest on LLM content** (per skill's explicit warning). Pytest covers `dedup`, `bundle` Pydantic roundtrip, ingest parsers — code correctness only.
+### Dynamic Compositing (Visual Variety)
 
-### Phase 5 — Deploy (**deferred**)
-`agents-cli scaffold enhance . --deployment-target cloud_run` (with Cloud Scheduler → Pub/Sub) or `agent_runtime`. Not doing now.
+**Problem:** Using the same Pillow template for every post causes the feed to look repetitive over time.
 
-### Phase 6 — Publish (**deferred**)
-Gemini Enterprise registration. Not doing now.
+**Option A — Multiple template variants + LLM selection**
+Design 3–5 layout variants per post type (different color schemes, text placement, crop styles). `ImageGeneratorAgent` picks a variant based on `content_direction`. Lightweight, bounded by how many templates you design.
 
-### Phase 7 — Observe (**deferred**)
-Cloud Trace + BigQuery Analytics. Not doing now.
+**Option B — HTML/CSS → Playwright rendering**
+`ImageGeneratorAgent` generates a post layout as HTML/CSS. Playwright renders it headlessly to a 1080×1080 PNG. Fully dynamic — no fixed templates. This is the approach used by Vercel's og-image and similar services. Requires a Playwright dependency and an LLM that reliably writes consistent HTML. Highest flexibility ceiling.
 
-## V2 Roadmap (Instagram + images)
+Implement Option A first (low friction), migrate to Option B when feed variety becomes a real constraint.
 
-Each item hooks into an existing seam — no core rewrites:
-1. Populate `ImageBrief` in writer prompt (one brief per section).
-2. `content_agent/tools/image.py` calls Imagen via `google-genai` (AI Studio path — same `GOOGLE_API_KEY`).
-3. `content_agent/publishers/instagram.py`: `InstagramPublisher(PlatformAdapter)` formats bundle as a carousel (cover + 3–5 slides), calls image tool per slide, posts via Graph API (Basic Display deprecated; business account needed).
-4. `config.publishers = [EmailPublisher, InstagramPublisher]`.
-5. Novelty check: before writer runs, a callback reads `data/archive/*.json` from the last 7 days, cosine-compares bundle candidates, flags near-duplicates. pgvector when volume warrants.
+### Instagram Publishing
+Wire up the Instagram Graph API once the content pipeline is proven locally. Requires a Facebook Business account and an approved app with `instagram_basic` + `instagram_content_publish` permissions. Media upload is URL-based (not direct file). Add `InstagramPublisherAgent` as a final step in the pipeline after `CaptionCriticAgent`. Deferred until content quality is validated manually.
 
-## Files to Create (Phase 0–4)
+### Historical Content Type
+"This day X years ago" posts. Requires a verified event database (hand-curated JSON of 50–100 entries minimum) before this content type is enabled. Do not use model recall for historical claims — hallucination risk is too high. Deferred until the database exists.
 
-After scaffold (which creates pyproject, README, initial `content_agent/`, tests skeleton, eval skeleton, .gitignore):
+### Source Citation & Fact Verification
+Add `source_url` as a mandatory field on `ApprovedIdea`. `CaptionCriticAgent` rejects any idea not backed by a cited, retrievable source. Modular addition to the judge rubric — add when hallucination becomes a visible problem in production output.
 
-- Hand-written: `DESIGN_SPEC.md`
-- `content_agent/config.py`, `content_agent/bundle.py`, `content_agent/agent.py`, `content_agent/callbacks.py`
-- `content_agent/sub_agents/{curator,writer,critic}.py`
-- `content_agent/tools/{ingest,dedup,send}.py`
-- `content_agent/publishers/{__init__,base,email}.py`
-- `prompts/{brand_voice,curator,writer,critic}.md`
-- `scratch/dump_samples.py`
-- `eval/curator.evalset.json`
-- `tests/{test_dedup,test_bundle}.py`
-- `.env.example` additions: `GOOGLE_API_KEY`, `GOOGLE_GENAI_USE_VERTEXAI=FALSE`, `FOOTBALL_DATA_TOKEN`
-
-## Verification
-
-- `agents-cli info` shows the scaffolded project correctly.
-- `uv sync` installs cleanly; `agents-cli lint` passes.
-- `uv run pytest` passes (code correctness only).
-- `python scratch/dump_samples.py` → `scratch/samples.json` has ~30 real Big-5 candidates; you paste a subset into AI Studio and the curator prompt produces editorially-sound picks.
-- `agents-cli run "generate today's newsletter"` → sub-agents run in sequence → `out/YYYY-MM-DD-draft.md` contains: title, match results section, player updates section, stat insights section. No duplicates across sections. Matches match today's real results.
-- `agents-cli eval run` on the 2–3 seeded cases → all green.
-- `python -m content_agent.tools.send YYYY-MM-DD --dry-run` → prints recipient, subject, body.
-- `python -m content_agent.tools.send YYYY-MM-DD` → email arrives in inbox.
-- **Scalability dry-run**: subclass `PlatformAdapter` with a no-op `StdoutPublisher`, wire it in `config.publishers`, confirm generation is format-agnostic (no email-specific fields leak into the `ContentBundle`).
+### Posting Scheduler & Content Calendar
+Cloud Scheduler triggers the daily pipeline after Agent Runtime deployment. Add a content calendar view (simple JSON or Google Sheet) so approved posts can be reviewed and reordered before publishing. Deferred to Phase 5.

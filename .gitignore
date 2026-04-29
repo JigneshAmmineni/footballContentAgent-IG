@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# Environment
+.env
+
+# ADK runtime state
+app/.adk/
+
+# Data and output (local only — use GCS in production)
+data/
+out/
+downloaded_files/
+
+# Scratch debug dumps (regenerated each run)
+scratch/last_raw_ideas.json
+scratch/last_run.log
+scratch/samples.json
+
+# Deployment metadata
+deployment_metadata.json
+.google-agents-cli/
+.claude/

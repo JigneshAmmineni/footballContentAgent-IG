@@ -1,0 +1,107 @@
+[
+  {
+    "name": "rewrites_weak_hook",
+    "description": "When a caption opens with a generic phrase, the critic must rewrite the first line",
+    "input": {
+      "approved_ideas": {
+        "ideas": [
+          {
+            "raw_idea_id": "kane_hat",
+            "priority": 9,
+            "content_direction": "Harry Kane scores a hat-trick from his own half in the Bundesliga — longest-range goal of the season. Frame as 'Kane does it all.'",
+            "data_needed": [],
+            "source_url": null
+          }
+        ]
+      },
+      "draft_captions": {
+        "kane_hat": "Here is everything you need to know about Kane's incredible hat-trick tonight for Bayern Munich. The England striker was in outstanding form and showed why he is one of the best in the world.\n\nWhat do you think of his performance?"
+      }
+    },
+    "assertions": [
+      "final caption for kane_hat must NOT start with 'Here is' or 'Here are'",
+      "final caption must reference a specific stat or angle from the content_direction (half-way line, longest range, hat-trick)",
+      "final caption must be no more than 5 lines before hashtags"
+    ]
+  },
+  {
+    "name": "no_emojis_in_final_post",
+    "description": "The critic must not introduce emojis even if the draft contained them",
+    "input": {
+      "approved_ideas": {
+        "ideas": [
+          {
+            "raw_idea_id": "mbappe_30",
+            "priority": 8,
+            "content_direction": "Mbappe reaches 30 La Liga goals in his debut season — fastest Real Madrid player to hit 30 in a single La Liga campaign.",
+            "data_needed": [],
+            "source_url": null
+          }
+        ]
+      },
+      "draft_captions": {
+        "mbappe_30": "30 goals in his first La Liga season. Mbappe is THAT guy. Fastest Madrid player to this milestone this century. Can anyone stop him? Drop your predictions below."
+      }
+    },
+    "assertions": [
+      "final caption must contain no emoji characters",
+      "hashtags must contain no emoji characters"
+    ]
+  },
+  {
+    "name": "hashtags_follow_formula",
+    "description": "Output hashtags must follow the 2+2+2+1 formula: competition, player/club, generic, branding",
+    "input": {
+      "approved_ideas": {
+        "ideas": [
+          {
+            "raw_idea_id": "bellingham_ucl",
+            "priority": 10,
+            "content_direction": "Jude Bellingham's late winner in the UCL semi-final — his 5th UCL goal of the season. Compare to Zidane's best UCL campaigns for Real Madrid.",
+            "data_needed": [],
+            "source_url": null
+          }
+        ]
+      },
+      "draft_captions": {
+        "bellingham_ucl": "5 UCL goals. A late winner in the semi-final. Bellingham is writing his own legend at Real Madrid.\nZidane had 5 UCL goals in his entire Bernabeu career. Bellingham did it in one season.\nIs this the greatest debut season by a midfielder in UCL history?"
+      }
+    },
+    "assertions": [
+      "hashtags must include at least one Champions League related tag (e.g. #ChampionsLeague or #UCL)",
+      "hashtags must include at least one player or club specific tag (e.g. #Bellingham or #RealMadrid)",
+      "hashtags must include at least one generic football tag (e.g. #football or #soccer)",
+      "hashtags must include #FootballContent",
+      "total hashtag count must be between 5 and 8"
+    ]
+  },
+  {
+    "name": "output_schema_matches_final_post_list",
+    "description": "Output must match FinalPostList schema with idea_id, image_path, caption, and priority fields",
+    "input": {
+      "approved_ideas": {
+        "ideas": [
+          {
+            "raw_idea_id": "leverkusen_unbeaten",
+            "priority": 9,
+            "content_direction": "Leverkusen go 40 games unbeaten — longest unbeaten run in Bundesliga history. Show the run as a timeline graphic.",
+            "data_needed": [],
+            "source_url": null
+          }
+        ]
+      },
+      "draft_captions": {
+        "leverkusen_unbeaten": "40 games. No defeats. Bayer Leverkusen have just broken the Bundesliga unbeaten record.\nXabi Alonso's side have not lost in the league since March 2023.\nThe greatest title run in German football history — agree or disagree?"
+      },
+      "image_paths": {
+        "leverkusen_unbeaten": "out/2026-04-27/leverkusen_unbeaten/image.png"
+      }
+    },
+    "assertions": [
+      "output must be a JSON object with a 'posts' key containing a list",
+      "each post must have fields: idea_id, image_path, caption, priority",
+      "idea_id must be 'leverkusen_unbeaten'",
+      "priority must be 9 (matching approved_ideas)"
+    ]
+  }
+]
