@@ -70,6 +70,10 @@ def log_after_idea_judge(callback_context: CallbackContext):
         [i.get("priority") for i in ideas],
     )
     _dump("[idea_judge] approved_ideas FULL", data)
+    # Write approved ideas for run_single_idea.py to consume
+    dump_path = _AUDIT_LOG.parent / "last_approved_ideas.json"
+    dump_path.write_text(json.dumps(ideas, indent=2, default=str), encoding="utf-8")
+    logger.debug("Approved ideas written to %s", dump_path)
 
 
 # ── image_generator ───────────────────────────────────────────────────────────

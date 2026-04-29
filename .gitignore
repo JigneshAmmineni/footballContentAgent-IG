@@ -17,8 +17,10 @@ downloaded_files/
 
 # Scratch debug dumps (regenerated each run)
 scratch/last_raw_ideas.json
+scratch/last_approved_ideas.json
 scratch/last_run.log
 scratch/samples.json
+scratch/single_idea_result.json
 
 # Deployment metadata
 deployment_metadata.json

@@ -14,7 +14,10 @@ The raw ideas are in session state as `raw_ideas` — a JSON list of RawIdea obj
 Evaluate each raw idea and decide whether it deserves to become an Instagram post.
 Output a JSON list of approved ideas matching the `ApprovedIdeaList` schema.
 
-**If `raw_ideas` is empty, return `{"ideas": []}` immediately. Do not invent ideas.**
+**Critical constraints — violation will produce unusable output:**
+- If `raw_ideas` is empty, return `{"ideas": []}` immediately.
+- Every `raw_idea_id` in your output MUST exactly match one of the `id` fields from the input list. Copy the id verbatim — do not shorten, rename, or invent ids.
+- Do not generate ideas that are not in the input list. Your only job is to select and enrich ideas from what you were given.
 
 ## Approval rubric
 
