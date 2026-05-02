@@ -27,6 +27,19 @@ Before running any fetcher manually (dump_samples.py, full pipeline, or any scri
 | **FBref** (`FbrefFetcher`) | Scraping — polite use only | Scrapes football-reference.com via `soccerdata`. Results are cached locally in `soccerdata_cache/`. **Only run once per session** — the cache prevents re-scraping. Hammering it risks an IP ban. |
 | **Understat** (`UnderstatFetcher`) | Scraping — polite use only | Same as FBref. Cached locally. **Only run once per session.** |
 
+## Scratch pipeline files
+
+| File | Stage | Contents |
+|---|---|---|
+| `scratch/samples.json` | Fetcher output / judge input | Top 100 RSS ideas fetched from all configured feeds |
+| `scratch/candidates.json` | Judge output / ranker input | Ideas approved by the judge (~25), enriched with `content_hint` and `fetched_at` |
+| `scratch/approved.json` | Ranker output | Top N stories from candidates, ranked in order of importance (highest priority first) |
+
+To re-run only the ranker against the existing candidates (e.g. after prompt tuning):
+```bash
+.venv/Scripts/python scratch/run_judge.py --ranker-only
+```
+
 ### Safe testing pattern
 - `dump_samples.py --source reddit` or `--source rss` — free to run as often as needed
 - `dump_samples.py --source football_data` — max 2–3× per day, never back-to-back

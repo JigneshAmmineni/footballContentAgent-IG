@@ -14,6 +14,7 @@ class ModelConfig:
     # python -c "from google import genai; c = genai.Client(); [print(m.name) for m in c.models.list()]"
     news_ingest: str = "gemini-2.5-flash"
     idea_judge: str = "gemini-2.5-pro"
+    idea_ranker: str = "gemini-2.5-pro"
     image_generator: str = "gemini-2.5-flash"
     caption_writer: str = "gemini-2.5-flash"
     caption_critic: str = "gemini-2.5-flash"
