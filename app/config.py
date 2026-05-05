@@ -15,7 +15,8 @@ class ModelConfig:
     news_ingest: str = "gemini-2.5-flash"
     idea_judge: str = "gemini-2.5-pro"
     idea_ranker: str = "gemini-2.5-pro"
-    image_generator: str = "gemini-2.5-flash"
+    content_planner: str = "gemini-2.5-pro"
+    image_generator: str = "gpt-image-2"
     caption_writer: str = "gemini-2.5-flash"
     caption_critic: str = "gemini-2.5-flash"
 
@@ -105,6 +106,12 @@ class Config:
         if not token:
             raise EnvironmentError("FOOTBALL_DATA_TOKEN not set")
         return token
+
+    def openai_api_key(self) -> str:
+        key = os.getenv("OPENAI_API_KEY", "")
+        if not key:
+            raise EnvironmentError("OPENAI_API_KEY not set")
+        return key
 
     def news_api_key(self) -> str:
         key = os.getenv("NEWS_API_KEY", "")
