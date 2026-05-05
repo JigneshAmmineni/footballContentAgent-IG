@@ -3,7 +3,7 @@
 Intermediate files written for inspection:
   scratch/samples.json    -- fetcher output  (input to judge)
   scratch/candidates.json -- judge output    (input to ranker)
-  scratch/approved.json   -- ranker output   (final top-15)
+  scratch/approved.json   -- ranker output   (final top-5)
 
 Usage:
     .venv/Scripts/python scratch/run_judge.py
@@ -32,7 +32,7 @@ from app.sub_agents.idea_ranker import idea_ranker_agent
 SAMPLES    = Path(__file__).parent / "samples.json"
 CANDIDATES = Path(__file__).parent / "candidates.json"
 APPROVED   = Path(__file__).parent / "approved.json"
-TOP_N = 10
+TOP_N = 5
 
 
 def _run_agent(agent, app_name: str, payload_text: str) -> dict:

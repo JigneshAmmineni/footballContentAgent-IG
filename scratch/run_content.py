@@ -3,7 +3,7 @@
 For each approved idea:
   1. Enrich: Jina Reader (article text) + football-data.org (match stats)
   2. Content planner (LLM) -> PostPlan (OverlaySpec + image_prompt)
-  3. Imagen 4 -> background image (cinematic, no text)
+  3. gpt-image-2 -> background image (cinematic, no text)
   4. PIL compositor -> final image (background + overlay)
   5. Caption writer (LLM) -> Instagram caption
   6. Save to out/{YYYY-MM-DD}/{idea_id}/image.png + caption.txt
@@ -16,6 +16,7 @@ import argparse
 import io
 import json
 import sys
+import time
 from datetime import date
 from pathlib import Path
 
@@ -202,7 +203,7 @@ def process_idea(idea: ApprovedIdea) -> FinalPost:
     # Step 3: Generate background image
     # ------------------------------------------------------------------ #
     print("\n  --- STEP 3: IMAGE GENERATION (gpt-image-2) ---")
-    _log("prompt sent to Imagen 4", post_plan.image_prompt)
+    _log("prompt sent to gpt-image-2", post_plan.image_prompt)
     bg = _generate_background(post_plan.image_prompt)
     _log("background", f"downloaded: {bg.size[0]}x{bg.size[1]} px")
 
@@ -315,9 +316,14 @@ def main():
             print(f"Idea {args.idea!r} not found in approved.json")
             sys.exit(1)
 
+    _INTER_IDEA_SLEEP = 30  # seconds between ideas — lets Gemini/OpenAI rate limits recover
+
     print(f"Processing {len(ideas)} idea(s)...")
     results = []
-    for idea in ideas:
+    for i, idea in enumerate(ideas):
+        if i > 0:
+            print(f"\n  [sleeping {_INTER_IDEA_SLEEP}s before next idea...]")
+            time.sleep(_INTER_IDEA_SLEEP)
         print(f"\n[priority={idea.priority}] {idea.content_direction[:70]}...")
         try:
             if args.plan_only:

@@ -20,6 +20,8 @@ scratch/last_raw_ideas.json
 scratch/last_approved_ideas.json
 scratch/last_run.log
 scratch/samples.json
+scratch/candidates.json
+scratch/approved.json
 scratch/single_idea_result.json
 
 # Deployment metadata
