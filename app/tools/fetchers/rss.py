@@ -1,9 +1,19 @@
 import hashlib
+import logging
 
 import feedparser
+import requests
 
 from app.models.raw_idea import RawIdea
 from app.tools.fetchers.base import BaseFetcher
+
+logger = logging.getLogger(__name__)
+
+# feedparser.parse(url) uses urllib with no timeout — a slow feed could hang
+# the entire pipeline indefinitely. Fetch bytes ourselves with a hard timeout
+# and hand them to feedparser to parse offline.
+_HTTP_TIMEOUT = 10
+_HTTP_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; football-content-agent/1.0)"}
 
 
 class RssFetcher(BaseFetcher):
@@ -15,11 +25,18 @@ class RssFetcher(BaseFetcher):
     def fetch(self) -> list[RawIdea]:
         ideas: list[RawIdea] = []
         for feed_cfg in self._feeds:
-            ideas.extend(self._fetch_one(feed_cfg.name, feed_cfg.url))
+            try:
+                ideas.extend(self._fetch_one(feed_cfg.name, feed_cfg.url))
+            except Exception as e:
+                # Per-feed isolation: one slow/broken feed must not knock out
+                # the other 5 outlets. Log and continue.
+                logger.warning("rss feed %s failed: %s", feed_cfg.name, e)
         return ideas
 
     def _fetch_one(self, name: str, url: str) -> list[RawIdea]:
-        parsed = feedparser.parse(url)
+        resp = requests.get(url, headers=_HTTP_HEADERS, timeout=_HTTP_TIMEOUT)
+        resp.raise_for_status()
+        parsed = feedparser.parse(resp.content)
         ideas = []
         for entry in parsed.entries[:20]:  # cap per outlet to avoid flooding
             title = entry.get("title", "")

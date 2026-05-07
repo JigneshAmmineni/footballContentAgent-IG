@@ -19,3 +19,9 @@ Return a single plain-text paragraph (no JSON, no bullet points, no headers). It
 
 Example output:
 "PSG beat Bayern Munich 5-4 in the UCL semi-final first leg (April 28, 2026). Ousmane Dembélé (PSG, wearing dark red away kit) was the standout with two goals — he wheeled away with both arms raised after his first and dropped to his knees at the corner flag for his second. Harry Kane (Bayern Munich, in white home kit) converted a penalty and scored a tap-in, pumping his fist toward the Bayern end each time. Kvaratskhelia (PSG) added a brace, celebrating each with a sprint toward his teammates. PSG manager Luis Enrique ran onto the pitch at full-time."
+
+## Input
+
+Find current information about this football story:
+
+{researcher_query?}

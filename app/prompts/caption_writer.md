@@ -24,7 +24,7 @@ Examples of good hooks:
 
 **Body** (2–3 sentences max): Add one or two key facts that complement the card. Do not re-list every stat on the card; the image shows those. Focus on the story angle from `content_direction`.
 
-**Hashtags** (final line, separated by a blank line): 5–8 relevant tags. Mix competition-specific (#ChampionsLeague #UCL), club-specific (#PSG #BayernMunich), and general (#Football #FootballNews).
+**Hashtags** (final line, separated by a blank line): 5–8 relevant tags. Mix competition-specific (#ChampionsLeague #UCL), club-specific (#PSG #BayernMunich), and general (#Football #FootballNews). Only add player-specific hashtags (e.g. #Saka, #Kane) for players explicitly named in `overlay_spec` or `article_text` — never add a player hashtag based on your training knowledge of who plays for a club.
 
 ---
 
@@ -39,3 +39,9 @@ Examples of good hooks:
 
 - Hook + body: aim under 250 characters
 - Total including hashtags: stay under 800 characters
+
+## Input
+
+Here is the post to write a caption for:
+
+{caption_input_json}

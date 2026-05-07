@@ -62,3 +62,9 @@ Return JSON matching CandidateIdeaList exactly.
 **Return up to 25 candidates.** Do not rank or score them — the ranker handles
 ordering. If fewer than 25 are genuinely worth posting, return only the worthy
 ones. If the input is empty, return `{"ideas": []}`.
+
+## Input
+
+Here is the JSON list of raw ideas to judge:
+
+{raw_ideas_json}

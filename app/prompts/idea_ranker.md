@@ -108,3 +108,10 @@ Return JSON matching ApprovedIdeaList exactly.
 **Return exactly the top 5 ideas**, sorted highest priority first. If fewer
 than 5 candidates are provided, return all of them ranked. If the input is
 empty, return `{"ideas": []}`.
+
+## Input
+
+Here are the candidate ideas to rank (with `fetched_at` preserved for recency
+judgment):
+
+{candidate_ideas_json}

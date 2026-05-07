@@ -38,31 +38,15 @@ _DEFAULT_RSS_FEEDS = [
 
 _BIG5_COMPETITIONS = ["PL", "PD", "BL1", "SA", "FL1"]
 
-_FBREF_LEAGUES = [
-    "ENG-Premier League",
-    "ESP-La Liga",
-    "GER-Bundesliga",
-    "ITA-Serie A",
-    "FRA-Ligue 1",
-]
-
-_UNDERSTAT_LEAGUES = ["EPL", "La liga", "Bundesliga", "Serie A", "Ligue 1"]
-
-# Current season in "YYYY-YYYY" format for soccerdata
-_CURRENT_SEASON = "2024-2025"
-
 
 @dataclass
 class Config:
     models: ModelConfig = field(default_factory=ModelConfig)
     rss_feeds: list[RssFeedConfig] = field(default_factory=lambda: list(_DEFAULT_RSS_FEEDS))
     competitions: list[str] = field(default_factory=lambda: list(_BIG5_COMPETITIONS))
-    fbref_leagues: list[str] = field(default_factory=lambda: list(_FBREF_LEAGUES))
-    understat_leagues: list[str] = field(default_factory=lambda: list(_UNDERSTAT_LEAGUES))
-    current_season: str = _CURRENT_SEASON
 
-    # Paths — prompts and assets live inside app/ so they're bundled with Agent Runtime.
-    # Data, out, and scratch live at project root (local dev; use GCS in production).
+    # Paths — prompts and assets live inside app/ so they're bundled with Agent Engine.
+    # Data and out live at project root (local dev; swap to GCS in production).
     _pkg_root: Path = field(default_factory=lambda: Path(__file__).parent)
     _project_root: Path = field(default_factory=lambda: Path(__file__).parent.parent)
 
@@ -81,10 +65,6 @@ class Config:
     @property
     def output_dir(self) -> Path:
         return self._project_root / "out"
-
-    @property
-    def soccerdata_cache_dir(self) -> Path:
-        return self._project_root / "data" / "soccerdata_cache"
 
     @property
     def badges_dir(self) -> Path:
@@ -118,6 +98,24 @@ class Config:
         if not key:
             raise EnvironmentError("NEWS_API_KEY not set")
         return key
+
+    def gcs_bucket_name(self) -> str:
+        val = os.getenv("GCS_BUCKET_NAME", "")
+        if not val:
+            raise EnvironmentError("GCS_BUCKET_NAME not set")
+        return val
+
+    def instagram_user_id(self) -> str:
+        val = os.getenv("INSTAGRAM_USER_ID", "")
+        if not val:
+            raise EnvironmentError("INSTAGRAM_USER_ID not set")
+        return val
+
+    def instagram_access_token(self) -> str:
+        val = os.getenv("INSTAGRAM_ACCESS_TOKEN", "")
+        if not val:
+            raise EnvironmentError("INSTAGRAM_ACCESS_TOKEN not set")
+        return val
 
 
 # Module-level singleton — imported by all agents and tools
