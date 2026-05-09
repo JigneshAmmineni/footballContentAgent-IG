@@ -33,7 +33,7 @@ jobs:
         # Only the packages deploy.py itself needs to import — not the full
         # requirements.txt (which is Windows-only in places and 200+ packages).
         # The app/ code is bundled into the Agent Engine container separately.
-        run: pip install google-cloud-aiplatform==1.148.1 python-dotenv==1.2.2
+        run: pip install google-cloud-aiplatform==1.148.1 python-dotenv==1.2.2 cloudpickle==3.1.2
 
       - name: Deploy to Agent Engine
         run: python deploy.py
