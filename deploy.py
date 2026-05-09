@@ -3,8 +3,9 @@
 Usage:
     .venv/Scripts/python deploy.py
 
-Reads GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION from .env.
-Prints the deployed resource name on success — save it for Cloud Scheduler.
+Reads GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION from .env (local) or
+environment variables (CI). If AGENT_ENGINE_RESOURCE_NAME is set, updates the
+existing resource in place; otherwise creates a new one and prints the name.
 """
 import os
 from pathlib import Path
@@ -53,32 +54,33 @@ vertexai.init(project=PROJECT, location=LOCATION, staging_bucket=STAGING_BUCKET)
 # management methods, not query() — so we use our own wrapper instead.
 app = FootballPipelineApp()
 
-print(f"Deploying to project={PROJECT} location={LOCATION} ...")
-print(f"Service account: {SERVICE_ACCOUNT}")
-
-remote_app = agent_engines.create(
+_DEPLOY_KWARGS = dict(
     agent_engine=app,
-    # Pip packages installed in the container at deployment time.
     requirements=_REQUIREMENTS,
-    # Local directories/packages bundled into the deployment artifact.
-    # app/ is a Python package (has __init__.py) — it gets zipped, uploaded
-    # to the staging bucket, then installed in the container alongside the
-    # pip requirements above.
     extra_packages=["app/"],
     display_name="football-content-agent",
-    # Non-secret config injected as environment variables in the container.
-    # AGENT_ENGINE=1 is the flag our code checks to switch on GCS paths and
-    # Secret Manager instead of local .env + local filesystem.
     env_vars={
         "AGENT_ENGINE": "1",
         "GOOGLE_GENAI_USE_VERTEXAI": "TRUE",
     },
-    # The IAM service account the container runs as — this is the identity
-    # that has secretAccessor, storage.objectAdmin, and aiplatform.user.
-    service_account=SERVICE_ACCOUNT,
 )
+
+EXISTING_RESOURCE_NAME = os.environ.get("AGENT_ENGINE_RESOURCE_NAME")
+
+print(f"Deploying to project={PROJECT} location={LOCATION} ...")
+print(f"Service account: {SERVICE_ACCOUNT}")
+
+if EXISTING_RESOURCE_NAME:
+    print(f"Updating existing resource: {EXISTING_RESOURCE_NAME}")
+    remote_app = agent_engines.get(EXISTING_RESOURCE_NAME)
+    remote_app.update(**_DEPLOY_KWARGS)
+else:
+    print("No existing resource — creating new deployment ...")
+    remote_app = agent_engines.create(**_DEPLOY_KWARGS, service_account=SERVICE_ACCOUNT)
 
 print(f"\nDeployed successfully.")
 print(f"Resource name: {remote_app.resource_name}")
 print(f"Agent Engine ID: {remote_app.resource_name.split('/')[-1]}")
-print(f"\nSave this resource name — you need it for Cloud Scheduler.")
+if not EXISTING_RESOURCE_NAME:
+    print(f"\nFirst deployment — add this GitHub Actions secret:")
+    print(f"  AGENT_ENGINE_RESOURCE_NAME = {remote_app.resource_name}")
