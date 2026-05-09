@@ -3,6 +3,7 @@ name: Deploy to Agent Engine
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 # Prevent concurrent deploys — a new push waits for the in-flight deploy to finish.
 concurrency:
