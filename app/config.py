@@ -54,7 +54,6 @@ _DEFAULT_RSS_FEEDS = [
     RssFeedConfig("guardian", "https://www.theguardian.com/football/rss"),
     RssFeedConfig("espn", "https://www.espn.com/espn/rss/soccer/news"),
     RssFeedConfig("90min", "https://www.90min.com/feed"),
-    RssFeedConfig("goal", "https://www.goal.com/feeds/en/news"),
 ]
 
 _BIG5_COMPETITIONS = ["PL", "PD", "BL1", "SA", "FL1"]

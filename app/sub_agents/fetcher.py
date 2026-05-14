@@ -28,8 +28,8 @@ from app.tools.fetchers import (
 
 logger = logging.getLogger(__name__)
 
-# Cap per source so one chatty source (reddit) can't drown out the others.
-_PER_SOURCE_CAP = 30
+# Per-source caps so one chatty source can't drown out the others.
+_SOURCE_CAPS = {"rss": 50, "reddit": 45, "newsapi": 30, "football_data": 30}
 
 
 class FetcherAgent(BaseAgent):
@@ -48,8 +48,9 @@ class FetcherAgent(BaseAgent):
                 # A single source failing must not kill the run — others may still produce.
                 logger.warning("fetcher %s failed: %s", name, e)
                 continue
-            ideas.extend(batch[:_PER_SOURCE_CAP])
-            logger.info("fetcher %s: %d ideas (capped at %d)", name, len(batch), _PER_SOURCE_CAP)
+            cap = _SOURCE_CAPS.get(name, 30)
+            ideas.extend(batch[:cap])
+            logger.info("fetcher %s: %d ideas (capped at %d)", name, len(batch), cap)
 
         # Cross-source semantic dedup + persistent seen.json filter.
         try:

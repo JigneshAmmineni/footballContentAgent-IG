@@ -8,7 +8,7 @@ from app.tools.fetchers.base import BaseFetcher
 _SUBREDDIT = "soccer"
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; football-content-agent/1.0)"}
 _ENDPOINTS = ["new", "hot", "rising"]
-_LIMIT = 50
+_LIMIT = 15
 
 
 class RedditFetcher(BaseFetcher):
@@ -43,7 +43,7 @@ class RedditFetcher(BaseFetcher):
                     suggested_type="news",
                     source_url=post_url if post_url.startswith("http") else permalink,
                 ))
-        return ideas
+        return ideas[:45]
 
 
 def _sha256(value: str) -> str:

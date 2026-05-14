@@ -31,14 +31,14 @@ class RssFetcher(BaseFetcher):
                 # Per-feed isolation: one slow/broken feed must not knock out
                 # the other 5 outlets. Log and continue.
                 logger.warning("rss feed %s failed: %s", feed_cfg.name, e)
-        return ideas
+        return ideas[:50]
 
     def _fetch_one(self, name: str, url: str) -> list[RawIdea]:
         resp = requests.get(url, headers=_HTTP_HEADERS, timeout=_HTTP_TIMEOUT)
         resp.raise_for_status()
         parsed = feedparser.parse(resp.content)
         ideas = []
-        for entry in parsed.entries[:20]:  # cap per outlet to avoid flooding
+        for entry in parsed.entries[:10]:  # cap per outlet to avoid flooding
             title = entry.get("title", "")
             link = entry.get("link", "")
             summary = entry.get("summary", "")
